@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Υπεύθυνες Δηλώσεις</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --border: #dde1e6;
+    --text: #1c2128;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --error: #dc2626;
+    --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .wrap {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+  h1 {
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+  p.subtitle {
+    color: var(--muted);
+    margin-top: 0;
+    margin-bottom: 28px;
+    font-size: 14px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 {
+    font-size: 14px;
+    margin: 0 0 14px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  select, input[type=text], input[type=date], input[type=number], textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+    color: var(--text);
+  }
+  textarea { min-height: 90px; resize: vertical; }
+  .field { margin-bottom: 16px; }
+  .checklist { display: flex; flex-direction: column; gap: 10px; }
+  .checklist label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .checklist input[type=checkbox] { width: 17px; height: 17px; cursor: pointer; }
+  .actions { display: flex; gap: 10px; align-items: center; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: 1;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  button.secondary:hover { background: #f3f4f6; color: var(--text); }
+  .empty, .error {
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .error { color: var(--error); }
+  .status { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .status.ok { color: var(--ok); }
+  .hint { font-size: 12px; color: var(--muted); margin: -8px 0 16px; }
+  .field-hint { font-size: 12px; color: var(--muted); margin: -2px 0 6px; }
+  .owner-group {
+    border-top: 1px dashed var(--border);
+    padding-top: 14px;
+    margin-top: 14px;
+  }
+  .owner-group h3 {
+    font-size: 13px;
+    margin: 0 0 12px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Υπεύθυνες Δηλώσεις</h1>
+  <p class="subtitle">Συμπλήρωσε τα στοιχεία μία φορά και κατέβασε όποιες δηλώσεις χρειάζεσαι.</p>
+
+  <div class="card" id="templates-card" style="display:none;">
+    <h2>Ποιες δηλώσεις θέλεις</h2>
+    <div class="checklist" id="templates-checklist"></div>
+  </div>
+
+  <form id="fields-card" style="display:none;">
+    <p class="hint">Τα στοιχεία αποθηκεύονται μόνο στον browser σου (όχι στον server) ώστε να μη τα ξαναγράφεις κάθε φορά.</p>
+    <div id="fields-container"></div>
+    <div class="card">
+      <div class="actions">
+        <button type="submit" id="submit-btn">Δημιουργία επιλεγμένων δηλώσεων</button>
+        <button type="button" class="secondary" id="clear-btn">Εκκαθάριση</button>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+  </form>
+
+  <div id="empty-state" class="card" style="display:none;">
+    <p class="empty">
+      Δεν βρέθηκαν templates. Βάλε αρχεία .docx (με placeholders τύπου
+      <code>&#123;&#123; onomateponymo &#125;&#125;</code>) μέσα στον φάκελο
+      <code>doc_templates/</code> και ανανέωσε τη σελίδα.
+    </p>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'ypefthynes_diloseis_values_v1';
+
+const templatesCard = document.getElementById('templates-card');
+const templatesChecklist = document.getElementById('templates-checklist');
+const fieldsCard = document.getElementById('fields-card');
+const fieldsContainer = document.getElementById('fields-container');
+const emptyState = document.getElementById('empty-state');
+const statusEl = document.getElementById('status');
+const submitBtn = document.getElementById('submit-btn');
+const clearBtn = document.getElementById('clear-btn');
+
+function loadStoredValues() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveStoredValues(values) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(values));
+  } catch {
+    // localStorage ίσως μπλοκαρισμένο -- δεν πειράζει, απλά δε θα θυμάται.
+  }
+}
+
+function currentFormValues() {
+  const values = {};
+  fieldsContainer.querySelectorAll('[name]').forEach(el => { values[el.name] = el.value; });
+  return values;
+}
+
+async function init() {
+  const res = await fetch('/api/fields');
+  const data = await res.json();
+
+  if (!data.templates.length) {
+    emptyState.style.display = 'block';
+    return;
+  }
+
+  templatesChecklist.innerHTML = data.templates
+    .map(t => `
+      <label>
+        <input type="checkbox" name="tpl" value="${escapeHtml(t)}" checked>
+        ${escapeHtml(t.replace(/\.docx$/, ''))}
+      </label>`)
+    .join('');
+  templatesCard.style.display = 'block';
+
+  const stored = loadStoredValues();
+  if (!data.fields.length) {
+    fieldsContainer.innerHTML = '<p class="empty">Δεν βρέθηκαν μεταβλητές σε κανένα template.</p>';
+  } else {
+    // Τα πεδία πρόσθετων πραγματικών δικαιούχων (onoma_2, eponymo_2, ...,
+    // μέχρι _6) δεν εμφανίζονται στην κανονική ομάδα τους -- ομαδοποιούνται
+    // ξεχωριστά, πίσω από ένα dropdown "πόσοι είναι", μέσα στην ίδια κάρτα
+    // "ΠΡΑΓΜΑΤΙΚΟΙ ΔΙΚΑΙΟΥΧΟΙ".
+    const ownerFieldRe = /^(onoma|eponymo|afm|adt|ektasi_dikaiomatos)_([2-6])$/;
+    const byGroup = {};
+    const ownerFieldsByN = {2: [], 3: [], 4: [], 5: [], 6: []};
+    for (const f of data.fields) {
+      const m = f.name.match(ownerFieldRe);
+      if (m) {
+        ownerFieldsByN[Number(m[2])].push(f);
+      } else {
+        (byGroup[f.group] ??= []).push(f);
+      }
+    }
+
+    fieldsContainer.innerHTML = '';
+    const groups = data.groups || [];
+    for (const g of groups) {
+      const groupFields = byGroup[g.key] || [];
+      if (!groupFields.length) continue;
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<h2>${escapeHtml(g.title)}</h2>` +
+        groupFields.map(f => renderField(f, stored[f.name])).join('');
+      fieldsContainer.appendChild(card);
+
+      // Το dropdown πρόσθετων δικαιούχων μπαίνει στο τέλος της ίδιας
+      // κάρτας "ΠΡΑΓΜΑΤΙΚΟΙ ΔΙΚΑΙΟΥΧΟΙ".
+      if (g.key === 'pragmatikos_dikaiouxos') {
+        appendExtraOwners(card, ownerFieldsByN, stored);
+      }
+    }
+  }
+  fieldsCard.style.display = 'block';
+
+  fieldsContainer.addEventListener('input', () => saveStoredValues(currentFormValues()));
+}
+
+function appendExtraOwners(card, ownerFieldsByN, stored) {
+  const hasExtraOwners = Object.values(ownerFieldsByN).some(list => list.length);
+  if (!hasExtraOwners) return;
+
+  // Πόσοι δικαιούχοι έχουν ήδη αποθηκευμένα στοιχεία -- ξεκίνα το dropdown
+  // εκεί ώστε να μη χαθούν από τα μάτια σε reload.
+  let initialCount = 1;
+  for (let n = 6; n >= 2; n--) {
+    if (ownerFieldsByN[n].some(f => stored[f.name])) { initialCount = n; break; }
+  }
+
+  const group = document.createElement('div');
+  group.className = 'owner-group';
+  group.innerHTML = `
+    <div class="field">
+      <label for="field-arithmos-dikaiouxwn">ΠΟΣΟΙ ΕΙΝΑΙ ΟΙ ΠΡΑΓΜΑΤΙΚΟΙ ΔΙΚΑΙΟΥΧΟΙ;</label>
+      <select id="field-arithmos-dikaiouxwn">
+        ${[1, 2, 3, 4, 5, 6].map(n => `<option value="${n}"${n === initialCount ? ' selected' : ''}>${n}</option>`).join('')}
+      </select>
+    </div>
+    <div id="owner-extra-fields"></div>`;
+  card.appendChild(group);
+
+  const extraContainer = group.querySelector('#owner-extra-fields');
+  for (let n = 2; n <= 6; n++) {
+    const sub = document.createElement('div');
+    sub.dataset.ownerN = n;
+    sub.innerHTML = `<p class="field-hint">${n}ος ΔΙΚΑΙΟΥΧΟΣ</p>` +
+      ownerFieldsByN[n].map(f => renderField(f, stored[f.name])).join('');
+    extraContainer.appendChild(sub);
+  }
+
+  const countSelect = group.querySelector('#field-arithmos-dikaiouxwn');
+  const applyCount = () => {
+    const n = Number(countSelect.value);
+    extraContainer.querySelectorAll('[data-owner-n]').forEach(sub => {
+      sub.style.display = Number(sub.dataset.ownerN) <= n ? 'block' : 'none';
+    });
+  };
+  countSelect.addEventListener('change', applyCount);
+  applyCount();
+}
+
+function renderField(f, storedValue) {
+  const id = `field-${f.name}`;
+  const value = storedValue !== undefined && storedValue !== '' ? storedValue : f.default;
+  const hintHtml = f.hint ? `<p class="field-hint">${escapeHtml(f.hint)}</p>` : '';
+  if (f.type === 'textarea') {
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        ${hintHtml}
+        <textarea id="${id}" name="${f.name}">${escapeHtml(value)}</textarea>
+      </div>`;
+  }
+  if (f.type === 'date') {
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        ${hintHtml}
+        <input type="text" id="${id}" name="${f.name}" value="${escapeHtml(value)}" placeholder="π.χ. 31 Αυγούστου 2026">
+      </div>`;
+  }
+  if (f.type === 'date-greek') {
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        ${hintHtml}
+        <input type="date" id="${id}" name="${f.name}" value="${escapeHtml(value)}">
+      </div>`;
+  }
+  if (f.type === 'percent') {
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        ${hintHtml}
+        <input type="number" id="${id}" name="${f.name}" value="${escapeHtml(value)}" min="0" max="100" step="1">
+      </div>`;
+  }
+  if (f.type === 'select') {
+    const options = (f.options || []).map(o =>
+      `<option value="${escapeHtml(o.value)}"${o.value === value ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
+    ).join('');
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        ${hintHtml}
+        <select id="${id}" name="${f.name}">
+          <option value="">-- ΕΠΙΛΕΞΕ --</option>
+          ${options}
+        </select>
+      </div>`;
+  }
+  return `
+    <div class="field">
+      <label for="${id}">${escapeHtml(f.label)}</label>
+      ${hintHtml}
+      <input type="text" id="${id}" name="${f.name}" value="${escapeHtml(value)}">
+    </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+clearBtn.addEventListener('click', () => {
+  if (!confirm('Να διαγραφούν όλα τα αποθηκευμένα στοιχεία από αυτόν τον browser;')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  fieldsContainer.querySelectorAll('[name]').forEach(el => { el.value = ''; });
+  statusEl.className = 'status ok';
+  statusEl.textContent = 'Τα στοιχεία διαγράφηκαν.';
+});
+
+fieldsCard.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const selectedTemplates = Array.from(templatesChecklist.querySelectorAll('input[name=tpl]:checked'))
+    .map(el => el.value);
+  if (!selectedTemplates.length) {
+    statusEl.className = 'status error';
+    statusEl.textContent = 'Επίλεξε τουλάχιστον μία δήλωση.';
+    return;
+  }
+
+  const values = currentFormValues();
+  saveStoredValues(values);
+
+  submitBtn.disabled = true;
+  statusEl.className = 'status';
+  statusEl.textContent = selectedTemplates.length > 1
+    ? `Δημιουργία ${selectedTemplates.length} δηλώσεων...`
+    : 'Δημιουργία εγγράφου...';
+
+  try {
+    const singleTemplate = selectedTemplates.length === 1;
+    const url = singleTemplate ? '/api/generate' : '/api/generate-all';
+    const body = singleTemplate
+      ? { template: selectedTemplates[0], values }
+      : { templates: selectedTemplates, values };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename\*=UTF-8''([^;]+)/) || disposition.match(/filename="([^"]+)"/);
+    const filename = match ? decodeURIComponent(match[1]) : (singleTemplate ? 'έγγραφο.docx' : 'δηλώσεις.zip');
+
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objUrl);
+
+    statusEl.className = 'status ok';
+    statusEl.textContent = 'Έτοιμο! Κατέβηκε το αρχείο.';
+  } catch (err) {
+    statusEl.className = 'status error';
+    statusEl.textContent = 'Σφάλμα: ' + err.message;
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+init();
+</script>
+</body>
+</html>

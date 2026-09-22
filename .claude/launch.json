@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ypefthynes-diloseis",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["run.py", "--no-open"],
+      "port": 8020
+    }
+  ]
+}
