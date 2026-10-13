@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from docxtpl import DocxTemplate
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -28,6 +28,14 @@ DOC_TEMPLATES_DIR = ROOT / "doc_templates"
 UI_DIR = ROOT / "templates"
 
 app = FastAPI(title="Υπεύθυνες Δηλώσεις")
+
+
+@app.on_event("startup")
+def _warm_up_ocr() -> None:
+    # Φορτώνει το μοντέλο OCR στο παρασκήνιο ώστε το πρώτο έγγραφο να μην περιμένει.
+    import threading
+    import ocr_extract
+    threading.Thread(target=ocr_extract.warm_up, daemon=True).start()
 
 # Ελληνικοί μήνες, για να μπορεί ένα template να γράφει "31 Αυγούστου 2026"
 # αν έχει ένα πεδίο σαν {{ imerominia_full }} -- προαιρετική βοήθεια.
@@ -159,7 +167,6 @@ GREEK_LABELS: dict[str, str] = {
     "epicheirisi_afm": "ΑΦΜ ΕΠΙΧΕΙΡΗΣΗΣ",
     "epicheirisi_katastatiko": "ΕΠΩΝΥΜΙΑ ΒΑΣΕΙ ΚΑΤΑΣΤΑΤΙΚΟΥ",
     "eponymo": "ΕΠΩΝΥΜΟ",
-    "ektasi_dikaiomatos": "ΕΚΤΑΣΗ ΔΙΚΑΙΩΜΑΤΟΣ (ΠΟΣΟΣΤΟ %)",
     "fax": "FAX",
     "gemi": "ΑΡΙΘΜΟΣ ΓΕΜΗ",
     "hmerominia": "ΗΜΕΡΟΜΗΝΙΑ",
@@ -184,8 +191,6 @@ GREEK_LABELS: dict[str, str] = {
     "topos_gennisis": "ΤΟΠΟΣ ΓΕΝΝΗΣΗΣ",
     "topos_katoikias": "ΤΟΠΟΣ ΚΑΤΟΙΚΙΑΣ",
     "typos_epicheirisis": "ΤΥΠΟΣ ΕΠΙΧΕΙΡΗΣΗΣ",
-    "ypikootita": "ΥΠΗΚΟΟΤΗΤΑ",
-    "xora_diamonis": "ΧΩΡΑ ΔΙΑΜΟΝΗΣ",
     "ypografon_onoma": "ΟΝΟΜΑΤΕΠΩΝΥΜΟ ΥΠΟΓΡΑΦΟΝΤΟΣ",
     "ypografon_idiotita": "ΙΔΙΟΤΗΤΑ ΥΠΟΓΡΑΦΟΝΤΟΣ",
 }
@@ -194,13 +199,22 @@ GREEK_LABELS: dict[str, str] = {
 # Ερωτηματολόγιο-Υποψηφίου -- ίδια 5 πεδία, επαναλαμβανόμενα με suffix
 # _2.._6 (βλ. σχετική ενότητα στο CLAUDE.md). Παράγουμε τις ελληνικές
 # ετικέτες τους εδώ αντί να τις γράψουμε 25 φορές με το χέρι.
-_PD_BASE_LABELS = {
-    "onoma": "ΟΝΟΜΑ", "eponymo": "ΕΠΩΝΥΜΟ", "afm": "ΑΦΜ",
+PD_BASE_LABELS = {
+    "onoma": "ΟΝΟΜΑ", "eponymo": "ΕΠΩΝΥΜΟ", "hmerominia_gennisis": "ΗΜΕΡΟΜΗΝΙΑ ΓΕΝΝΗΣΗΣ",
+    "ypikootita": "ΥΠΗΚΟΟΤΗΤΑ", "xora_diamonis": "ΧΩΡΑ ΔΙΑΜΟΝΗΣ", "afm": "ΑΦΜ",
     "adt": "ΑΡΙΘΜΟΣ ΔΕΛΤΙΟΥ ΤΑΥΤΟΤΗΤΑΣ", "ektasi_dikaiomatos": "ΕΚΤΑΣΗ ΔΙΚΑΙΩΜΑΤΟΣ (%)",
 }
-for _n in range(2, 7):
-    for _base, _label in _PD_BASE_LABELS.items():
+MAX_OWNERS = 6
+for _n in range(1, MAX_OWNERS + 1):
+    for _base, _label in PD_BASE_LABELS.items():
         GREEK_LABELS[f"{_base}_{_n}"] = f"{_label} ({_n}ος ΔΙΚΑΙΟΥΧΟΣ)"
+
+
+_OWNER_VAR_RE = re.compile(r"^(" + "|".join(PD_BASE_LABELS) + r")_[1-6]$")
+
+
+def is_owner_field(var: str) -> bool:
+    return bool(_OWNER_VAR_RE.match(var))
 
 # Βοηθητικό κείμενο κάτω από την ετικέτα, για πεδία που χρειάζονται λίγη
 # καθοδήγηση για να ξέρει ο χρήστης τι/πώς να γράψει.
@@ -244,18 +258,18 @@ FIELD_GROUPS: dict[str, str] = {
     "adt": "diaxeiristis", "tilefono": "diaxeiristis", "topos_katoikias": "diaxeiristis",
     "odos": "diaxeiristis", "arithmos": "diaxeiristis", "tk": "diaxeiristis",
     "email": "diaxeiristis", "fax": "diaxeiristis", "afm": "diaxeiristis",
-    "ypikootita": "diaxeiristis", "xora_diamonis": "diaxeiristis",
     "nomimos_ekprosopos": "diaxeiristis", "onomateponymo": "diaxeiristis",
     "ypografon_onoma": "diaxeiristis", "ypografon_idiotita": "diaxeiristis",
     "dieuthintiko_stelexos": "diaxeiristis",
     # -- Πραγματικοί Δικαιούχοι --
-    "ektasi_dikaiomatos": "pragmatikos_dikaiouxos",
     "hmerominia_mitroo_pd": "pragmatikos_dikaiouxos",
     "pragmatikoi_dikaiouxoi": "pragmatikos_dikaiouxos",
 }
 
 
 def field_group(var: str) -> str:
+    if is_owner_field(var):
+        return "pragmatikos_dikaiouxos"
     return FIELD_GROUPS.get(var, "geniko")
 
 
@@ -289,7 +303,7 @@ def guess_field_type(var: str) -> str:
     if var in FIELD_OPTIONS:
         return "select"
     v = var.lower()
-    if var in GREEK_DATE_FIELDS:
+    if var in GREEK_DATE_FIELDS or re.fullmatch(r"hmerominia_gennisis_[1-6]", var):
         return "date-greek"
     if v.startswith("ektasi_dikaiomatos"):
         return "percent"
@@ -366,8 +380,10 @@ def _render_template_bytes(name: str, values: dict[str, str]) -> bytes:
     # κεφαλαία) -- π.χ. "ΔΩΔΕΚΑ ΑΥΓΟΥΣΤΟΥ ΔΥΟ ΧΙΛΙΑΔΕΣ ΕΙΚΟΣΙ ΕΞΙ". Οι άλλες
     # ημερομηνίες (υπογραφής, μητρώου ΠΔ) μένουν στη συνηθισμένη μορφή
     # "31 Αυγούστου 2026".
-    if context.get("hmerominia_gennisis"):
-        context["hmerominia_gennisis"] = _iso_to_greek_full_words(context["hmerominia_gennisis"])
+    birth_vars = [v for v in context if v == "hmerominia_gennisis" or re.fullmatch(r"hmerominia_gennisis_[1-6]", v)]
+    for var in birth_vars:
+        if context.get(var):
+            context[var] = _iso_to_greek_full_words(context[var])
     for var in GREEK_DATE_FIELDS - {"hmerominia_gennisis"}:
         if context.get(var):
             context[var] = _iso_to_greek(context[var])
@@ -440,6 +456,26 @@ def api_generate_all(req: GenerateAllRequest):
             )
         },
     )
+
+
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+
+@app.post("/api/extract")
+def api_extract(kind: str = Form(...), file: UploadFile = File(...)):
+    """Διαβάζει (τοπικό OCR) ένα έγγραφο/screenshot και επιστρέφει τιμές πεδίων
+    για προσυμπλήρωση της φόρμας. Δεν αποθηκεύεται τίποτα -- όλα στη μνήμη."""
+    import ocr_extract
+    if kind not in ("company", "person", "owners"):
+        raise HTTPException(400, "Άγνωστο είδος εγγράφου")
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "Το αρχείο είναι πολύ μεγάλο (όριο 25MB)")
+    try:
+        result = ocr_extract.extract(kind, file.filename or "", data)
+    except Exception as exc:  # κατεστραμμένο αρχείο, άγνωστη μορφή κ.λπ.
+        raise HTTPException(422, f"Δεν μπόρεσα να διαβάσω το αρχείο ({type(exc).__name__})")
+    return result
 
 
 @app.get("/", response_class=HTMLResponse)

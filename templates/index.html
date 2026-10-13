@@ -111,6 +111,24 @@
   .status.ok { color: var(--ok); }
   .hint { font-size: 12px; color: var(--muted); margin: -8px 0 16px; }
   .field-hint { font-size: 12px; color: var(--muted); margin: -2px 0 6px; }
+  .autofilled { background: #fffbe6 !important; border-color: #e0b400 !important; }
+  .dropzone {
+    display: block;
+    border: 1.5px dashed var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .dropzone:hover, .dropzone.over { border-color: var(--accent); background: #f5f8ff; }
+  .dropzone input[type=file] { display: none; }
+  .dropzone small { display: block; font-weight: 400; color: var(--muted); margin-top: 2px; }
+  .dropzone .dz-status { display: block; font-size: 12px; margin-top: 6px; min-height: 14px; }
+  .dz-files { display: block; margin-top: 6px; font-size: 12px; font-weight: 400; color: #374151; word-break: break-all; }
+  .dz-files div::before { content: '\\1F4C4  '; }
+  .dz-files .nf { color: var(--error); }
+  .dz-status.ok { color: var(--ok); } .dz-status.err { color: var(--error); }
   .owner-group {
     border-top: 1px dashed var(--border);
     padding-top: 14px;
@@ -131,6 +149,33 @@
   <div class="card" id="templates-card" style="display:none;">
     <h2>Ποιες δηλώσεις θέλεις</h2>
     <div class="checklist" id="templates-checklist"></div>
+  </div>
+
+  <div class="card" id="autofill-card">
+    <h2>Αυτόματη συμπλήρωση από έγγραφα</h2>
+    <p class="hint">Ανέβασε έγγραφα/screenshots και η φόρμα γεμίζει μόνη της (τοπικό OCR, τίποτα δεν στέλνεται έξω). Μετά τα διορθώνεις όπου χρειάζεται.</p>
+    <label class="dropzone" data-kind="company">
+      Μητρώο επιχείρησης (Βεβαίωση myAADE)
+      <small>PDF ή screenshot (και πολλά αρχεία μαζί) · Επωνυμία, ΑΦΜ, νομική μορφή, διεύθυνση, εταίροι με ποσοστά</small>
+      <input type="file" accept="application/pdf,image/*" multiple>
+      <span class="dz-status"></span>
+    </label>
+    <label class="dropzone" data-kind="person" data-target="manager">
+      Διαχειριστής (προσωπικά στοιχεία)
+      <small>PDF ή screenshot (και πολλά αρχεία μαζί) · Ονοματεπώνυμο, γονείς, γέννηση, ταυτότητα, διεύθυνση, τηλέφωνο, email</small>
+      <input type="file" accept="application/pdf,image/*" multiple>
+      <span class="dz-status"></span>
+    </label>
+    <div class="owner-group" style="margin-top:6px">
+      <div class="field">
+        <label for="field-arithmos-dikaiouxwn">ΠΟΣΟΙ ΕΙΝΑΙ ΟΙ ΕΤΑΙΡΟΙ / ΠΡΑΓΜΑΤΙΚΟΙ ΔΙΚΑΙΟΥΧΟΙ;</label>
+        <select id="field-arithmos-dikaiouxwn">
+          <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+        </select>
+        <p class="field-hint">Ο διαχειριστής δεν είναι απαραίτητα και εταίρος. Το PDF του μητρώου με τον πίνακα «Μέλη/Εταίροι» γεμίζει όλους τους δικαιούχους με ποσοστά· εδώ μπορείς να ανεβάσεις πρόσθετο αρχείο ανά δικαιούχο.</p>
+      </div>
+      <div id="owner-zones"></div>
+    </div>
   </div>
 
   <form id="fields-card" style="display:none;">
@@ -210,13 +255,12 @@ async function init() {
   if (!data.fields.length) {
     fieldsContainer.innerHTML = '<p class="empty">Δεν βρέθηκαν μεταβλητές σε κανένα template.</p>';
   } else {
-    // Τα πεδία πρόσθετων πραγματικών δικαιούχων (onoma_2, eponymo_2, ...,
-    // μέχρι _6) δεν εμφανίζονται στην κανονική ομάδα τους -- ομαδοποιούνται
-    // ξεχωριστά, πίσω από ένα dropdown "πόσοι είναι", μέσα στην ίδια κάρτα
-    // "ΠΡΑΓΜΑΤΙΚΟΙ ΔΙΚΑΙΟΥΧΟΙ".
-    const ownerFieldRe = /^(onoma|eponymo|afm|adt|ektasi_dikaiomatos)_([2-6])$/;
+    // Τα πεδία των δικαιούχων (onoma_1..onoma_6 κ.λπ.) δεν μπαίνουν στην κανονική ομάδα
+    // τους: ομαδοποιούνται ανά δικαιούχο μέσα στην κάρτα "ΠΡΑΓΜΑΤΙΚΟΙ ΔΙΚΑΙΟΥΧΟΙ" και
+    // εμφανίζονται ανάλογα με το dropdown "πόσοι είναι".
+    const ownerFieldRe = new RegExp('^(' + OWNER_FIELD_ORDER.join('|') + ')_([1-6])$');
     const byGroup = {};
-    const ownerFieldsByN = {2: [], 3: [], 4: [], 5: [], 6: []};
+    const ownerFieldsByN = {1: [], 2: [], 3: [], 4: [], 5: [], 6: []};
     for (const f of data.fields) {
       const m = f.name.match(ownerFieldRe);
       if (m) {
@@ -224,6 +268,9 @@ async function init() {
       } else {
         (byGroup[f.group] ??= []).push(f);
       }
+    }
+    for (const list of Object.values(ownerFieldsByN)) {
+      list.sort((x, y) => OWNER_FIELD_ORDER.indexOf(x.name.replace(/_\d$/, '')) - OWNER_FIELD_ORDER.indexOf(y.name.replace(/_\d$/, '')));
     }
 
     fieldsContainer.innerHTML = '';
@@ -241,56 +288,31 @@ async function init() {
       // Το dropdown πρόσθετων δικαιούχων μπαίνει στο τέλος της ίδιας
       // κάρτας "ΠΡΑΓΜΑΤΙΚΟΙ ΔΙΚΑΙΟΥΧΟΙ".
       if (g.key === 'pragmatikos_dikaiouxos') {
-        appendExtraOwners(card, ownerFieldsByN, stored);
+        appendOwnerSections(card, ownerFieldsByN, stored);
       }
     }
+    // Το dropdown ξεκινά στον τελευταίο δικαιούχο που έχει αποθηκευμένα στοιχεία.
+    let initial = 1;
+    for (let n = 6; n >= 1; n--) {
+      if (ownerFieldsByN[n].some(f => stored[f.name])) { initial = n; break; }
+    }
+    document.getElementById('field-arithmos-dikaiouxwn').value = String(initial);
+    applyOwnerCount();
   }
   fieldsCard.style.display = 'block';
 
   fieldsContainer.addEventListener('input', () => saveStoredValues(currentFormValues()));
 }
 
-function appendExtraOwners(card, ownerFieldsByN, stored) {
-  const hasExtraOwners = Object.values(ownerFieldsByN).some(list => list.length);
-  if (!hasExtraOwners) return;
-
-  // Πόσοι δικαιούχοι έχουν ήδη αποθηκευμένα στοιχεία -- ξεκίνα το dropdown
-  // εκεί ώστε να μη χαθούν από τα μάτια σε reload.
-  let initialCount = 1;
-  for (let n = 6; n >= 2; n--) {
-    if (ownerFieldsByN[n].some(f => stored[f.name])) { initialCount = n; break; }
-  }
-
-  const group = document.createElement('div');
-  group.className = 'owner-group';
-  group.innerHTML = `
-    <div class="field">
-      <label for="field-arithmos-dikaiouxwn">ΠΟΣΟΙ ΕΙΝΑΙ ΟΙ ΠΡΑΓΜΑΤΙΚΟΙ ΔΙΚΑΙΟΥΧΟΙ;</label>
-      <select id="field-arithmos-dikaiouxwn">
-        ${[1, 2, 3, 4, 5, 6].map(n => `<option value="${n}"${n === initialCount ? ' selected' : ''}>${n}</option>`).join('')}
-      </select>
-    </div>
-    <div id="owner-extra-fields"></div>`;
-  card.appendChild(group);
-
-  const extraContainer = group.querySelector('#owner-extra-fields');
-  for (let n = 2; n <= 6; n++) {
+function appendOwnerSections(card, ownerFieldsByN, stored) {
+  for (let n = 1; n <= 6; n++) {
+    if (!ownerFieldsByN[n].length) continue;
     const sub = document.createElement('div');
-    sub.dataset.ownerN = n;
-    sub.innerHTML = `<p class="field-hint">${n}ος ΔΙΚΑΙΟΥΧΟΣ</p>` +
-      ownerFieldsByN[n].map(f => renderField(f, stored[f.name])).join('');
-    extraContainer.appendChild(sub);
+    sub.className = 'owner-group';
+    sub.dataset.ownerSection = n;
+    sub.innerHTML = `<h3>${n}ος ΔΙΚΑΙΟΥΧΟΣ</h3>` + ownerFieldsByN[n].map(f => renderField(f, stored[f.name])).join('');
+    card.appendChild(sub);
   }
-
-  const countSelect = group.querySelector('#field-arithmos-dikaiouxwn');
-  const applyCount = () => {
-    const n = Number(countSelect.value);
-    extraContainer.querySelectorAll('[data-owner-n]').forEach(sub => {
-      sub.style.display = Number(sub.dataset.ownerN) <= n ? 'block' : 'none';
-    });
-  };
-  countSelect.addEventListener('change', applyCount);
-  applyCount();
 }
 
 function renderField(f, storedValue) {
@@ -302,7 +324,7 @@ function renderField(f, storedValue) {
       <div class="field">
         <label for="${id}">${escapeHtml(f.label)}</label>
         ${hintHtml}
-        <textarea id="${id}" name="${f.name}">${escapeHtml(value)}</textarea>
+        <textarea id="${id}" name="${f.name}" data-default="${escapeHtml(f.default)}">${escapeHtml(value)}</textarea>
       </div>`;
   }
   if (f.type === 'date') {
@@ -310,7 +332,7 @@ function renderField(f, storedValue) {
       <div class="field">
         <label for="${id}">${escapeHtml(f.label)}</label>
         ${hintHtml}
-        <input type="text" id="${id}" name="${f.name}" value="${escapeHtml(value)}" placeholder="π.χ. 31 Αυγούστου 2026">
+        <input type="text" id="${id}" name="${f.name}" data-default="${escapeHtml(f.default)}" value="${escapeHtml(value)}" placeholder="π.χ. 31 Αυγούστου 2026">
       </div>`;
   }
   if (f.type === 'date-greek') {
@@ -318,7 +340,7 @@ function renderField(f, storedValue) {
       <div class="field">
         <label for="${id}">${escapeHtml(f.label)}</label>
         ${hintHtml}
-        <input type="date" id="${id}" name="${f.name}" value="${escapeHtml(value)}">
+        <input type="date" id="${id}" name="${f.name}" data-default="${escapeHtml(f.default)}" value="${escapeHtml(value)}">
       </div>`;
   }
   if (f.type === 'percent') {
@@ -326,7 +348,7 @@ function renderField(f, storedValue) {
       <div class="field">
         <label for="${id}">${escapeHtml(f.label)}</label>
         ${hintHtml}
-        <input type="number" id="${id}" name="${f.name}" value="${escapeHtml(value)}" min="0" max="100" step="1">
+        <input type="number" id="${id}" name="${f.name}" data-default="${escapeHtml(f.default)}" value="${escapeHtml(value)}" min="0" max="100" step="any">
       </div>`;
   }
   if (f.type === 'select') {
@@ -337,7 +359,7 @@ function renderField(f, storedValue) {
       <div class="field">
         <label for="${id}">${escapeHtml(f.label)}</label>
         ${hintHtml}
-        <select id="${id}" name="${f.name}">
+        <select id="${id}" name="${f.name}" data-default="${escapeHtml(f.default)}">
           <option value="">-- ΕΠΙΛΕΞΕ --</option>
           ${options}
         </select>
@@ -347,7 +369,7 @@ function renderField(f, storedValue) {
     <div class="field">
       <label for="${id}">${escapeHtml(f.label)}</label>
       ${hintHtml}
-      <input type="text" id="${id}" name="${f.name}" value="${escapeHtml(value)}">
+      <input type="text" id="${id}" name="${f.name}" data-default="${escapeHtml(f.default)}" value="${escapeHtml(value)}">
     </div>`;
 }
 
@@ -359,8 +381,16 @@ function escapeHtml(s) {
 
 clearBtn.addEventListener('click', () => {
   if (!confirm('Να διαγραφούν όλα τα αποθηκευμένα στοιχεία από αυτόν τον browser;')) return;
-  localStorage.removeItem(STORAGE_KEY);
-  fieldsContainer.querySelectorAll('[name]').forEach(el => { el.value = ''; });
+  try { localStorage.removeItem(STORAGE_KEY); } catch {}
+  // Κάθε πεδίο γυρίζει στην αρχική του τιμή (π.χ. η ημερομηνία υπογραφής = σήμερα), όχι απλά στο κενό.
+  fieldsContainer.querySelectorAll('[name]').forEach(el => {
+    el.value = el.dataset.default || '';
+    el.classList.remove('autofilled');
+  });
+  const count = document.getElementById('field-arithmos-dikaiouxwn');
+  if (count) { count.value = '1'; count.dispatchEvent(new Event('change')); }
+  document.querySelectorAll('.dz-status').forEach(s => { s.textContent = ''; s.className = 'dz-status'; });
+  document.querySelectorAll('.dz-files').forEach(f => { f.innerHTML = ''; });
   statusEl.className = 'status ok';
   statusEl.textContent = 'Τα στοιχεία διαγράφηκαν.';
 });
@@ -421,6 +451,145 @@ fieldsCard.addEventListener('submit', async (e) => {
   } finally {
     submitBtn.disabled = false;
   }
+});
+
+// ---------- Αυτόματη συμπλήρωση από έγγραφα (OCR) ----------
+const OWNER_FIELD_ORDER = ['onoma', 'eponymo', 'hmerominia_gennisis', 'ypikootita', 'xora_diamonis', 'afm', 'adt', 'ektasi_dikaiomatos'];
+const OWNER_PERSON_KEYS = ['onoma', 'eponymo', 'hmerominia_gennisis', 'ypikootita', 'afm', 'adt'];   // όσα δίνει ένα screenshot/PDF προσώπου
+
+async function extractFile(kind, file) {
+  const fd = new FormData();
+  fd.append('kind', kind);
+  fd.append('file', file);
+  const res = await fetch('/api/extract', { method: 'POST', body: fd });
+  if (!res.ok) {
+    let msg = 'Σφάλμα';
+    try { msg = (await res.json()).detail || msg; } catch {}
+    throw new Error(msg);
+  }
+  return await res.json();   // {fields, members?}
+}
+
+function setField(name, value) {
+  const el = document.getElementById('field-' + name);
+  if (!el || el.tagName === 'SELECT' && !el.querySelector(`option[value="${CSS.escape(value)}"]`)) return false;
+  el.value = value;
+  el.classList.add('autofilled');
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+}
+
+function applyFields(fields, owner = 0, keys = null) {
+  let n = 0;
+  for (const [k, v] of Object.entries(fields)) {
+    if (!v || (keys && !keys.includes(k))) continue;
+    if (setField(owner ? `${k}_${owner}` : k, v)) n++;
+  }
+  return n;
+}
+
+function applyOwnerCount() {
+  const n = Number(document.getElementById('field-arithmos-dikaiouxwn').value);
+  document.querySelectorAll('[data-owner-section], [data-owner-zone]').forEach(el => {
+    el.style.display = Number(el.dataset.ownerSection || el.dataset.ownerZone) <= n ? 'block' : 'none';
+  });
+}
+
+function setOwnerCount(count) {
+  const sel = document.getElementById('field-arithmos-dikaiouxwn');
+  if (Number(sel.value) < count) sel.value = String(Math.min(count, 6));
+  applyOwnerCount();
+}
+
+function fillOwnersFromMembers(members) {
+  let total = 0;
+  members.slice(0, 6).forEach((m, i) => {
+    total += applyFields(m, i + 1, ['onoma', 'eponymo', 'afm', 'ektasi_dikaiomatos']);
+  });
+  setOwnerCount(members.length);
+  return total;
+}
+
+async function handleZone(zone, files) {
+  const status = zone.querySelector('.dz-status');
+  const list = zone.querySelector('.dz-files');
+  const kind = zone.dataset.kind;
+  const owner = Number(zone.dataset.ownerZone || 0);
+  files = Array.from(files).slice(0, 5);
+  if (!files.length) return;
+  list.innerHTML = files.map(f => `<div>${escapeHtml(f.name)}</div>`).join('');   // φαίνονται αμέσως
+  status.className = 'dz-status';
+  status.textContent = 'Διαβάζω... (την πρώτη φορά θέλει λίγα δευτερόλεπτα παραπάνω)';
+  try {
+    let total = 0;
+    const seen = new Set();   // πολλά αρχεία για το ίδιο πρόσωπο/επιχείρηση: κερδίζει η πρώτη τιμή
+    const lines = [];
+    for (const file of files) {
+      let count = 0;
+      try {
+        const res = await extractFile(kind, file);
+        const fresh = Object.fromEntries(Object.entries(res.fields).filter(([k]) => !seen.has(k)));
+        Object.keys(fresh).forEach(k => seen.add(k));
+        if (owner) {
+          count += applyFields(fresh, owner, OWNER_PERSON_KEYS);
+        } else {
+          count += applyFields(fresh);
+          if (kind === 'company' && (res.members || []).length) count += fillOwnersFromMembers(res.members);
+        }
+        lines.push(`<div${count ? '' : ' class="nf"'}>${escapeHtml(file.name)} — ${count ? count + ' πεδία' : 'δεν βρέθηκαν στοιχεία'}</div>`);
+      } catch (err) {
+        lines.push(`<div class="nf">${escapeHtml(file.name)} — σφάλμα: ${escapeHtml(err.message)}</div>`);
+      }
+      total += count;
+    }
+    list.innerHTML = lines.join('');
+    status.className = total ? 'dz-status ok' : 'dz-status err';
+    status.textContent = total
+      ? `Συμπληρώθηκαν ${total} πεδία (κίτρινα) -- έλεγξέ τα.`
+      : 'Δεν βρήκα στοιχεία. Είναι το σωστό είδος εγγράφου για αυτό το σημείο;';
+  } catch (err) {
+    status.className = 'dz-status err';
+    status.textContent = 'Σφάλμα: ' + err.message;
+  }
+}
+
+function wireZone(zone) {
+  if (!zone.querySelector('.dz-files')) {
+    const f = document.createElement('span');
+    f.className = 'dz-files';
+    zone.querySelector('.dz-status').before(f);
+  }
+  const input = zone.querySelector('input[type=file]');
+  input.addEventListener('change', () => { handleZone(zone, input.files); input.value = ''; });
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('over');
+    handleZone(zone, e.dataTransfer.files);
+  });
+}
+
+// Ένα σημείο ανεβάσματος ανά δικαιούχο (εμφανίζονται ανάλογα με το dropdown).
+const ownerZones = document.getElementById('owner-zones');
+for (let n = 1; n <= 6; n++) {
+  const zone = document.createElement('label');
+  zone.className = 'dropzone';
+  zone.dataset.kind = 'person';
+  zone.dataset.ownerZone = n;
+  zone.innerHTML = `${n}ος δικαιούχος (προσωπικά στοιχεία)
+    <small>PDF ή screenshot (Βεβαίωση Βασικών Στοιχείων Φυσικού Προσώπου ή φόρμα gov.gr) · Όνομα, επώνυμο, γέννηση, υπηκοότητα, ΑΦΜ, ταυτότητα. Το ποσοστό έρχεται από το μητρώο ή το βάζεις εσύ.</small>
+    <input type="file" accept="application/pdf,image/*" multiple>
+    <span class="dz-status"></span>`;
+  ownerZones.appendChild(zone);
+}
+document.getElementById('field-arithmos-dikaiouxwn').addEventListener('change', applyOwnerCount);
+document.querySelectorAll('.dropzone').forEach(wireZone);
+applyOwnerCount();
+
+// Το κίτρινο φεύγει όταν ο χρήστης διορθώσει το πεδίο.
+fieldsContainer.addEventListener('input', e => {
+  if (e.isTrusted) e.target.classList.remove('autofilled');
 });
 
 init();
